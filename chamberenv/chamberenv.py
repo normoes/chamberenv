@@ -8,6 +8,7 @@ import stat
 import shutil
 import sys
 import re
+import functools
 
 import requests
 from requests.exceptions import RequestException
@@ -21,15 +22,15 @@ ARCHS = {
     "darwin": "-darwin-amd64",
     "linux": "-linux-amd64",
     "windows": "-windows-amd64.exe",
-    "deb": "_amd64.deb",
-    "rpm": "_amd64.rpm",
+    #     "deb": "_amd64.deb",
+    #     "rpm": "_amd64.rpm",
 }
 SHA256_SUMS = ".sha256sums"
 
-# Example
-VERSION = "v2.8.0"
-ARCH = ARCHS["linux"]
-SHA256_SUM = "4a47bd9f7fb46ba4a3871efbb60931592defe7c954bd10b4e92323aa30874fc1"
+# # Example
+# VERSION = "v2.8.0"
+# ARCH = ARCHS["linux"]
+# SHA256_SUM = "4a47bd9f7fb46ba4a3871efbb60931592defe7c954bd10b4e92323aa30874fc1"
 
 HOME_DIR = os.path.expanduser("~")
 CONFIG_FOLDER = "chamberenv"
@@ -39,13 +40,26 @@ if not os.path.exists(CONFIG_PATH):
 LOCAL_BIN_PATH = os.path.join(os.path.join(f"{HOME_DIR}", ".local"), "bin")
 
 
-def exec_in_path():
-    paths = os.environ("PATH", None)
+def exec_in_path(func):
+    """Decorator to check PATH variable.
+    """
 
-    return paths and LOCAL_BIN_PATH in paths
+    @functools.wraps(func)
+    def wrapped(*args, **kwargs):
+        result = func(*args, **kwargs)
+
+        paths = os.getenv("PATH", None)
+        if not paths or LOCAL_BIN_PATH not in paths:
+            logger.warning(
+                f"Please add '{CONFIG_PATH}' to you 'PATH' variable."
+            )
+
+        return result
+
+    return wrapped
 
 
-def cleanup(version, arch=ARCHS["linux"], tool="chamber"):
+def cleanup(version, arch=ARCHS["linux"], tool="chamber", also_exec=False):
     """Delete downloaded files.
 
     Used when uninstalling a version.
@@ -58,6 +72,16 @@ def cleanup(version, arch=ARCHS["linux"], tool="chamber"):
             print(f"Removed chamber version '{version}'.")
     except (OSError) as e:
         logger.warning(f"Could not delete '{file_path}': {str(e)}.")
+
+    if also_exec:
+        file_path = os.path.join(LOCAL_BIN_PATH, tool)
+        logger.debug(f"Deleting '{file_path}'.")
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                print(f"Removed chamber executable '{version}'.")
+        except (OSError) as e:
+            logger.warning(f"Could not delete '{file_path}': {str(e)}.")
 
 
 def valid_hash(version, arch=ARCHS["linux"], file_path=""):
@@ -127,7 +151,8 @@ def valid_hash(version, arch=ARCHS["linux"], file_path=""):
     return sha_sum_file == sha_sum_expected
 
 
-def get_chamber(version, arch=ARCHS["linux"], tool="chamber"):
+@exec_in_path
+def get_version(version=None, arch=ARCHS["linux"], tool="chamber"):
     """Download new chamber version.
 
     Including sha256sum file.
@@ -174,7 +199,8 @@ def get_chamber(version, arch=ARCHS["linux"], tool="chamber"):
         return False
 
 
-def activate_version(version, arch=ARCHS["linux"], tool="chamber"):
+@exec_in_path
+def activate_version(version=None, arch=ARCHS["linux"], tool="chamber"):
     if not version:
         logger.error("Missing version.")
         return False
@@ -227,7 +253,7 @@ def get_active_version():
     return version
 
 
-def show_versions(active_version, tool="chamber"):
+def gather_versions(tool="chamber"):
     p = re.compile(f"{tool}-(.*)-.*-.*")
     versions = []
     for f in os.listdir(CONFIG_PATH):
@@ -236,10 +262,23 @@ def show_versions(active_version, tool="chamber"):
             if match:
                 version = match.groups()[0]
                 versions.append(version)
+
+    return versions
+
+
+def show_versions(active_version, tool="chamber"):
+    versions = gather_versions(tool=tool)
+
+    # Sort versions, only considering digits.
     versions.sort(
-        key=lambda x: [int(u) for u in x[1:].split(".")], reverse=True
-    )
-    logger.info(versions)
+        key=lambda x: re.sub("\D", "", x), reverse=True
+    )  # noqa: W605
+    logger.debug(versions)
+
+    if not versions:
+        print(f"No managed chamber version found.")
+        return False
+
     for version in versions:
         if active_version == version:
             print(
@@ -247,6 +286,8 @@ def show_versions(active_version, tool="chamber"):
             )
         else:
             print(f"  {version}")
+
+    return True
 
 
 def main():
@@ -356,6 +397,11 @@ def main():
 
     if args.debug:
         logger.setLevel(logging.DEBUG)
+        stream_handler = logging.StreamHandler(sys.stdout)
+        formatter = logging.Formatter(f"%(lineno)s: {logging.BASIC_FORMAT}")
+        stream_handler.setFormatter(formatter)
+        logger.addHandler(stream_handler)
+        logger.propagate = False
     else:
         logger.setLevel(logging.INFO)
 
@@ -390,7 +436,9 @@ def main():
 
     error = False
     if install_chamber:
-        downloaded = get_chamber(version=chamber_version, arch=arch)
+        downloaded = True
+        activated = True
+        downloaded = get_version(version=chamber_version, arch=arch)
         if downloaded:
             activated = activate_version(version=chamber_version, arch=arch)
             if not activated:
@@ -404,10 +452,19 @@ def main():
 
         error = not downloaded or not activated
     elif uninstall_chamber:
+        activated = True
+        active_version = True
+
         active_version = get_active_version()
         if active_version:
-            if chamber_version != active_version:
-                cleanup(version=chamber_version, arch=arch)
+            # If the last version is uninstalled
+            # also remove the executable.
+            last_version = len(gather_versions(tool="chamber")) == 1
+            allow_uninstall = last_version or chamber_version != active_version
+            if allow_uninstall:
+                cleanup(
+                    version=chamber_version, arch=arch, also_exec=last_version
+                )
             else:
                 logger.error(
                     "Not uninstalling the active chamber version. Switch first using 'use'."
@@ -419,14 +476,20 @@ def main():
 
         error = not active_version
     elif list_versions:
+        active_version = True
+        show = True
+
         active_version = get_active_version()
         if active_version:
-            show_versions(active_version=active_version)
+            show = show_versions(active_version=active_version)
         else:
             logger.error(f"Error while getting active chamber version.")
 
-        error = not active_version
+        error = not active_version or not show
     elif use_version:
+        activated = True
+        active_version = True
+
         active_version = get_active_version()
         if active_version != chamber_version:
             activated = activate_version(version=chamber_version, arch=arch)

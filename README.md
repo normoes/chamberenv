@@ -74,6 +74,7 @@ It manages the executable files in: `~/.local/bin`, so make sure this is in your
               INFO:ChamberEnv:Chamber version: v2.8.2
               ERROR:ChamberEnv:Not uninstalling the active chamber version. Switch first using 'use'.
           ```
+      + The only exception to the above rule is when the active version of chamber is the only version installed. This will remove the downloaded files as well as the `chamber` exectuable.
 * The option `--debug` shows debug information.
 
 See:
