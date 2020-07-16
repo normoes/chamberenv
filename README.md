@@ -2,7 +2,7 @@
 
 This project is inspired by [`tfenv`](https://github.com/tfutils/tfenv).
 
-It's supposed to be a helper tool, that easily installs, removes, list and switches different versions of chamber.
+It's supposed to be a helper tool, that easily installs, removes, lists and switches different versions of chamber.
 
 It downloads the different versions of `chamber` from the github release page: https://github.com/segmentio/chamber/releases.
 
@@ -15,11 +15,11 @@ It manages the executable files in: `~/.local/bin`, so make sure this is in your
 * I only tested it with `linux`, downloading and running `chamber` versions like `chamber-v2.8.2-linux-amd64`.
 
 ## How to
-* Get help
+* Get help:
   - `chamberenv --help`
-* Get the tool version
+* Get the tool version:
   - `chamberenv --version`
-* General usage
+* General usage.
   - List managed versions of chamber:
       ```
           chamberenv list
@@ -27,7 +27,7 @@ It manages the executable files in: `~/.local/bin`, so make sure this is in your
           * v2.8.2 (set by /home/norman/.config/chamberenv/version)
             v2.8.0
       ```
-  - Install a specific version of chamber.
+  - Install a specific version of chamber:
       ```
           chamberenv install --chamber-version v2.7.5
           # Result:
@@ -55,7 +55,7 @@ It manages the executable files in: `~/.local/bin`, so make sure this is in your
       ```
       + Nothing is downloaded.
       + The given version will be activated.
-  - Uninstall a specific version of chamber.
+  - Uninstall a specific version of chamber:
       ```
           chamberenv uninstall --chamber-version v2.7.5
           # Result:
@@ -63,7 +63,7 @@ It manages the executable files in: `~/.local/bin`, so make sure this is in your
           Removed chamber version 'v2.7.5'.
       ```
       + The downloaded files for this version of chamber will be removed.
-      + You cannot uninstall the active version of chamber.
+      + You cannot uninstall the active version of chamber:
           ```
               chamber version
               # Result:
