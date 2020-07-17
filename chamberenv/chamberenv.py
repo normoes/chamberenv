@@ -271,7 +271,7 @@ def show_versions(active_version, tool="chamber"):
 
     # Sort versions, only considering digits.
     versions.sort(
-        key=lambda x: re.sub("\D", "", x), reverse=True
+        key=lambda x: int(re.sub("\D", "", x)), reverse=True
     )  # noqa: W605
     logger.debug(versions)
 
