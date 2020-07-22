@@ -32,6 +32,10 @@ SHA256_SUMS = ".sha256sums"
 # ARCH = ARCHS["linux"]
 # SHA256_SUM = "4a47bd9f7fb46ba4a3871efbb60931592defe7c954bd10b4e92323aa30874fc1"
 
+GITHUB_API_URL = "https://api.github.com/repos/{repo}/{endpoint}"
+ENDPOINT_RELEASES = "releases"
+ENDPOINT_LATEST_RELEASE = "releases/latest"
+
 HOME_DIR = os.path.expanduser("~")
 CONFIG_FOLDER = "chamberenv"
 CONFIG_PATH = os.path.join(os.path.join(HOME_DIR, ".config"), CONFIG_FOLDER)
@@ -266,17 +270,37 @@ def gather_versions(tool="chamber"):
     return versions
 
 
-def show_versions(active_version, tool="chamber"):
-    versions = gather_versions(tool=tool)
+def gather_remote_versions(
+    repo="segmentio/chamber", endpoint=ENDPOINT_RELEASES
+):
+    versions = []
+    response = None
+    url = GITHUB_API_URL.format(repo=repo, endpoint=endpoint)
+    try:
+        response = requests.get(url=url, timeout=5)
+        releases = response.json()
+        for release in releases:
+            versions.append(release["tag_name"])
+    except (RequestException) as e:
+        logger.error(f"Cannot get the sha256sum file from {url}: {str(e)}")
 
-    # Sort versions, only considering digits.
-    versions.sort(
-        key=lambda x: int(re.sub("\D", "", x)), reverse=True
-    )  # noqa: W605
+    if response is None:
+        logger.error(f"Could not retrieve remote versions for '{repo}'.")
+
+    return versions
+
+
+def print_versions(versions, active_version=-1, sort=True):
+    if sort:
+        # String comparison is sufficient.
+        versions.sort(reverse=True)
+        # Sort versions, only considering digits.
+        # key=lambda x: int(re.sub("\D", "", x[:x.find("-") if x.find("-") > 0 else len(x)])), reverse=True  # noqa: W605
+
     logger.debug(versions)
 
     if not versions:
-        print(f"No managed chamber version found.")
+        print(f"No chamber versions found.")
         return False
 
     for version in versions:
@@ -285,9 +309,24 @@ def show_versions(active_version, tool="chamber"):
                 f"* {version} (set by {os.path.join(CONFIG_PATH, 'version')})"
             )
         else:
-            print(f"  {version}")
+            if active_version == -1:
+                print(f"{version}")
+            else:
+                print(f"  {version}")
 
     return True
+
+
+def show_versions(active_version=-1, tool="chamber"):
+    versions = gather_versions(tool=tool)
+    return print_versions(versions=versions, active_version=active_version)
+
+
+def show_remote_versions(
+    active_version=-1, repo="segmentio/chamber", endpoint=ENDPOINT_RELEASES
+):
+    versions = gather_remote_versions(repo=repo, endpoint=endpoint)
+    return print_versions(versions=versions, active_version=active_version)
 
 
 def main():
@@ -361,8 +400,18 @@ def main():
     list_versions = subparsers.add_parser(
         "list",
         # parents=[config],
-        help="List versions of chamber.",
-        description="List version of chamber.",
+        help="List installed versions of chamber.",
+        description="List installed versions of chamber.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        allow_abbrev=False,
+    )
+
+    # List remote versions of chamber.
+    list_remote_versions = subparsers.add_parser(
+        "list-remote",
+        # parents=[config],
+        help="List installable versionss of chamber.",
+        description="List installable versions of chamber.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         allow_abbrev=False,
     )
@@ -408,6 +457,7 @@ def main():
     install_chamber = False
     uninstall_chamber = False
     list_versions = False
+    list_remote_versions = False
     use_version = False
 
     if args.subcommand in ("install", "uninstall", "use"):
@@ -433,6 +483,8 @@ def main():
         logger.debug(f"System architecture: {arch}")
     elif args.subcommand == "list":
         list_versions = True
+    elif args.subcommand == "list-remote":
+        list_remote_versions = True
 
     error = False
     if install_chamber:
@@ -452,7 +504,7 @@ def main():
 
         error = not downloaded or not activated
     elif uninstall_chamber:
-        activated = True
+        allow_uninstall = True
         active_version = True
 
         active_version = get_active_version()
@@ -470,22 +522,29 @@ def main():
                     "Not uninstalling the active chamber version. Switch first using 'use'."
                 )
         else:
-            logger.error(
-                f"Error while getting active chamber version: {chamber_version}{arch}."
-            )
+            logger.error(f"Error while getting active chamber version.")
 
-        error = not active_version
+        error = not active_version or not allow_uninstall
     elif list_versions:
-        active_version = True
         show = True
 
         active_version = get_active_version()
-        if active_version:
-            show = show_versions(active_version=active_version)
-        else:
-            logger.error(f"Error while getting active chamber version.")
+        if not active_version:
+            logger.warning(f"Error while getting active chamber version.")
+            active_version = -1
+        show = show_versions(active_version=active_version)
 
-        error = not active_version or not show
+        error = not show
+    elif list_remote_versions:
+        show = True
+
+        active_version = get_active_version()
+        if not active_version:
+            logger.warning(f"Error while getting active chamber version.")
+            active_version = -1
+        show = show_remote_versions(active_version=active_version)
+
+        error = not show
     elif use_version:
         activated = True
         active_version = True
